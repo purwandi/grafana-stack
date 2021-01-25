@@ -1,0 +1,71 @@
+version: '3'
+
+services:
+  tempo-query:
+    image: grafana/tempo-query:0.5.0
+    command:
+      - "--grpc-storage-plugin.configuration-file=/etc/tempo-query.yaml"
+    volumes:
+      - ./config/tempo-query.yaml:/etc/tempo-query.yaml
+    environment:
+      - SPAN_STORAGE_TYPE=grpc-plugin
+      - GRPC_STORAGE_PLUGIN_BINARY=/tmp/tempo-query
+      - JAEGER_AGENT_HOST=tempo
+      - JAEGER_AGENT_PORT=6831
+    ports:
+      - "16686:16686"
+    depends_on:
+      - tempo
+
+  tempo:
+    image: grafana/tempo:0.5.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./config/tempo.yaml:/etc/tempo.yaml
+      - ./storage/tempo:/tmp/tempo
+    ports:
+      - "14268:14268"
+      - "6831:6831/udp"
+      - "3200:3200"
+
+  loki:
+    image: grafana/loki:2.1.0
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./config/loki.yaml:/etc/loki/config.yaml
+    ports:
+      - "3100:3100"                                   # loki needs to be exposed so it receives logs
+    environment:
+      - JAEGER_AGENT_HOST=tempo
+      - JAEGER_ENDPOINT=http://tempo:14268/api/traces # send traces to Tempo
+
+  promtail:
+    image: grafana/promtail:2.0.0
+    volumes:
+      - ./storage/log/user:/var/log/user
+      - ./config/promtail.yaml:/etc/promtail/promtail.yaml
+    command: -config.file=/etc/promtail/promtail.yaml
+
+  grafana:
+    image: grafana/grafana:7.3.7
+    volumes:
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    ports:
+      - "3000:3000"
+
+  ## Optional
+  ## ==================================================
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   volumes:
+  #     - ./etc/prometheus.yaml:/etc/prometheus.yaml
+  #   entrypoint:
+  #     - /bin/prometheus
+  #     - --config.file=/etc/prometheus.yaml
+  #   ports:
+  #     - "9090:9090"
